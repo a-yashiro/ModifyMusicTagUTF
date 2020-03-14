@@ -1,0 +1,6 @@
+*.exe
+*.dll
+Test/
+テスト/
+.vscode/
+*.code-workspace
