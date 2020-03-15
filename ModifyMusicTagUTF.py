@@ -20,14 +20,18 @@ def ExecTagCheck(outLogPath,inFolder):
 		#tags = ID3(file)
 		audiofile = eyed3.load(file)
 		tags = audiofile.tag
+		# そもそもタグが入っていないケース
+		if tags is None or tags.title is None:
+			continue
+
 		print(tags.title)
 		# utf8だったらそのまま
 		is_utf = True
 		try:
-			print(chardet.detect(bytes(tags.title,"utf-8")))
-			if bytes(tags.title,"latin1"):
-			#if chardet.detect(bytes(tags.title,"utf8"))["encoding"] != "utf-8":
-				is_utf = False
+			# 判定文字コードがasciiだったら何もしない、utf8は怪しいのでLatin>CP932の変換で例外チェック
+			if chardet.detect(bytes(tags.title,"utf-8"))["encoding"] != "ascii":
+				if bytes(tags.title,"latin1").decode("cp932"):
+					is_utf = False
 		except:
 			is_utf = True	#Latin1に変換できなかったならUTF8とみなしてそのまま
 		if is_utf != True:
