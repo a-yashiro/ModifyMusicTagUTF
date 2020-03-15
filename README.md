@@ -1,5 +1,5 @@
 # ModifyMusicTagUTF
 ShiftJISタグ入りの古い音楽ファイルをUTFタグに変換
 
-要インストール mutagen
+要インストール eyed3
 
