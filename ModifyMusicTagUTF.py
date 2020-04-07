@@ -4,11 +4,31 @@ from pathlib import Path
 import eyed3
 import chardet
 import inspect
+import re
 
 #global変数
 logConvertFile = Path()
 logErrorFile = Path()
 logNoTagFile = Path()
+
+re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
+re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
+
+#そもそもID3タグがはいってないので、ファイル名からタグを作る
+def CreateID3TagsFromFileName(inFile):
+	filename = inFile.name
+	# ファイル名が (***)***.mp3の形式の場合のみ
+	if re_title_from_filename.match ( filename ):
+		title = re_title_from_filename.sub('\\1', filename)
+		artist = re_artist_from_filename.sub('\\1',filename)
+		logNoTagFile.write("\tArtist:"+artist + "\n\tTitle:" + title +"\n")
+		return True
+	else:
+		logErrorFile.write(str(inFile.resolve())+"\n")
+		logErrorFile.write("\tno ID3 tag but wrong file name pattern" +"\n")
+		return False
+
+
 
 #フォルダ単位で変換処理実行
 def ExecTagCheck(outLogPath,inFolder):
@@ -35,7 +55,7 @@ def ExecTagCheck(outLogPath,inFolder):
 						is_utf = False
 			except:
 				is_utf = True	#Latin1に変換できなかったならUTF8とみなしてそのまま
-			if is_utf != True:
+			if not is_utf:
 				print("find cp932:"+str(member)+"["+str(value)+"]")
 				print(str(member) + ":" +bytes(value,"latin1").decode("cp932"))
 
@@ -47,8 +67,10 @@ def ExecTagCheck(outLogPath,inFolder):
 
 		# そもそもタグが入っていないケース
 		if tags is None or tags.title is None:
-			logNoTagFile.write(str(file.resolve())+"\n")
 			#logNoTagFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
+			res = CreateID3TagsFromFileName(file)
+			if res:
+				logNoTagFile.write(str(file.resolve())+"\n")
 
 		print("***********************")
 
@@ -87,3 +109,4 @@ if __name__ == "__main__":
 		logConvertFile.close()
 		logErrorFile.close()
 		logNoTagFile.close()
+	
