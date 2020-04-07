@@ -1,6 +1,4 @@
 *.exe
 *.dll
-Test/
-テスト/
-.vscode/
-*.code-workspace
+Test/*.mp3
+Test/origin
