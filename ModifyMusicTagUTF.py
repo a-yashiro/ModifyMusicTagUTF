@@ -16,13 +16,23 @@ re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
 re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
 
 #そもそもID3タグがはいってないので、ファイル名からタグを作る
-def CreateID3TagsFromFileName(inFile):
+def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
 	filename = inFile.name
 	# ファイル名が (***)***.mp3の形式の場合のみ
 	if re_title_from_filename.match ( filename ):
 		title = re_title_from_filename.sub('\\1', filename)
 		artist = re_artist_from_filename.sub('\\1',filename)
 		logNoTagFile.write("\tArtist:"+artist + "\n\tTitle:" + title +"\n")
+		
+		#変換したタグを保存
+		if not isCheckOnly:
+			inAudioFile.initTag()
+			tags = inAudioFile.tag
+			tags.artist = artist
+			tags.album = artist
+			tags.title = title
+			tags.save(encoding='utf-16', version=(2, 3, 0))
+			
 		return True
 	else:
 		logErrorFile.write(str(inFile.resolve())+"\n")
@@ -32,7 +42,7 @@ def CreateID3TagsFromFileName(inFile):
 
 
 #フォルダ単位で変換処理実行
-def ExecTagCheck(outLogPath,inFolder):
+def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 	print( "checking folder : " + str(inFolder.name) )
 
 	#ファイルの解析
@@ -68,8 +78,9 @@ def ExecTagCheck(outLogPath,inFolder):
 
 				try:
 					#変換したタグを保存
-					setattr(tags,member,utf_string)
-					tags.save(encoding='utf-16', version=tags.version)
+					if not isCheckOnly:
+						setattr(tags,member,utf_string)
+						tags.save(encoding='utf-16', version=tags.version)
 
 					#ログを出力
 					if is_first_tag:
@@ -86,7 +97,7 @@ def ExecTagCheck(outLogPath,inFolder):
 		if tags is None or tags.title is None:
 			#logNoTagFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
 			is_skipped = False
-			res = CreateID3TagsFromFileName(file)
+			res = CreateID3TagsFromFileName(file,audiofile, isCheckOnly)
 			if res:
 				logNoTagFile.write(str(file.resolve())+"\n")
 
@@ -102,7 +113,8 @@ if __name__ == "__main__":
 
 	args = sys.argv
 	if len(args) < 2:
-		print(	'userge:\n ModifyMusicTagsUTF.py [log out path] [in convert folder path]')
+		print(	'userge:\n ModifyMusicTagsUTF.py [log out path] [-c] [in convert folder path]\n'
+			+ '[-c] check only(not save)')
 	else:
 		outLogPath = Path(args[1])
 		if not outLogPath.exists():
@@ -124,10 +136,14 @@ if __name__ == "__main__":
 		logSkipFile = (outLogPath / "logSkipFile.txt").open(mode='w')
 		logSkipFile.write("skip file list\n\n")
 
+		isCheckOnly = False
 		for count,arg in enumerate(args):
 			if count > 1:
-				if os.path.exists(arg):
-					ExecTagCheck(outLogPath,Path(arg))
+				if arg == '-c':
+					isCheckOnly = True
+				else:
+					if os.path.exists(arg):
+						ExecTagCheck(outLogPath,Path(arg),isCheckOnly)
 
 		logConvertFile.close()
 		logErrorFile.close()
