@@ -6,7 +6,7 @@
         {
             "label": "Copy Test Files",
             "type": "shell",
-            "command": "${workspaceFolder}\\Test\\test_pre.bat"
+            "command": "${workspaceFolder}\\Test\\test_pretask.bat"
             //"command": "echo hello"
         }
     ]

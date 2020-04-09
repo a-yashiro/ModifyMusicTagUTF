@@ -36,6 +36,8 @@ def ExecTagCheck(outLogPath,inFolder):
 
 	#ファイルの解析
 	files_list = inFolder.glob("*.mp3")
+	# 注意、files_listは配列ではなくGenerator
+
 	for count,file in enumerate(files_list):
 		print (" checking file ["+"{:0=3}".format(count)+"] " + str(file.resolve()))
 
@@ -56,14 +58,25 @@ def ExecTagCheck(outLogPath,inFolder):
 			except:
 				is_utf = True	#Latin1に変換できなかったならUTF8とみなしてそのまま
 			if not is_utf:
-				print("find cp932:"+str(member)+"["+str(value)+"]")
-				print(str(member) + ":" +bytes(value,"latin1").decode("cp932"))
+				utf_string = bytes(value,"latin1").decode("cp932")
+				#print("find cp932:"+str(member)+"["+str(value)+"]")
+				#print(str(member) + ":" +utf_string)
 
-				#ログを出力
-				if is_first_tag:
-					logConvertFile.write(str(file.resolve())+"\n")
-					is_first_tag = False
-				logConvertFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
+				try:
+					#変換したタグを保存
+					setattr(tags,member,utf_string)
+					tags.save(encoding='utf-16', version=tags.version)
+
+					#ログを出力
+					if is_first_tag:
+						logConvertFile.write(str(file.resolve())+"\n")
+						is_first_tag = False
+					logConvertFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
+					logConvertFile.write("\t"+"Tag version " + str(tags.version) + "\n" )
+
+				except:
+					logErrorFile.write(str(file.resolve())+"\n")
+					logErrorFile.write("\tno converted utf id3 tag save error" +"\n")
 
 		# そもそもタグが入っていないケース
 		if tags is None or tags.title is None:
@@ -72,7 +85,7 @@ def ExecTagCheck(outLogPath,inFolder):
 			if res:
 				logNoTagFile.write(str(file.resolve())+"\n")
 
-		print("***********************")
+		#print("***********************")
 
 
 #main
