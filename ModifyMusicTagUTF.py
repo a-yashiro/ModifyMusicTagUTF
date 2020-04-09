@@ -10,6 +10,7 @@ import re
 logConvertFile = Path()
 logErrorFile = Path()
 logNoTagFile = Path()
+logSkipFile = Path()
 
 re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
 re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
@@ -35,7 +36,7 @@ def ExecTagCheck(outLogPath,inFolder):
 	print( "checking folder : " + str(inFolder.name) )
 
 	#ファイルの解析
-	files_list = inFolder.glob("*.mp3")
+	files_list = inFolder.glob("**/*.mp3")
 	# 注意、files_listは配列ではなくGenerator
 
 	for count,file in enumerate(files_list):
@@ -47,6 +48,7 @@ def ExecTagCheck(outLogPath,inFolder):
 		tags = audiofile.tag
 
 		is_first_tag = True
+		is_skipped = True
 		for member, value in inspect.getmembers(tags):
 			is_utf = True
 			#print(str(member+":"+str(value)))
@@ -62,6 +64,8 @@ def ExecTagCheck(outLogPath,inFolder):
 				#print("find cp932:"+str(member)+"["+str(value)+"]")
 				#print(str(member) + ":" +utf_string)
 
+				is_skipped = False
+
 				try:
 					#変換したタグを保存
 					setattr(tags,member,utf_string)
@@ -70,9 +74,9 @@ def ExecTagCheck(outLogPath,inFolder):
 					#ログを出力
 					if is_first_tag:
 						logConvertFile.write(str(file.resolve())+"\n")
+						logConvertFile.write("\t"+"Tag version " + str(tags.version) + "\n" )
 						is_first_tag = False
 					logConvertFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
-					logConvertFile.write("\t"+"Tag version " + str(tags.version) + "\n" )
 
 				except:
 					logErrorFile.write(str(file.resolve())+"\n")
@@ -81,9 +85,13 @@ def ExecTagCheck(outLogPath,inFolder):
 		# そもそもタグが入っていないケース
 		if tags is None or tags.title is None:
 			#logNoTagFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
+			is_skipped = False
 			res = CreateID3TagsFromFileName(file)
 			if res:
 				logNoTagFile.write(str(file.resolve())+"\n")
+
+		if is_skipped:
+			logSkipFile.write(str(file.resolve())+"\n")
 
 		#print("***********************")
 
@@ -113,6 +121,8 @@ if __name__ == "__main__":
 		logErrorFile.write("convert error file list\n\n")
 		logNoTagFile = (outLogPath / "logNoTagFiles.txt").open(mode='w')
 		logNoTagFile.write("no tag added file list\n\n")
+		logSkipFile = (outLogPath / "logSkipFile.txt").open(mode='w')
+		logSkipFile.write("skip file list\n\n")
 
 		for count,arg in enumerate(args):
 			if count > 1:

@@ -1,2 +1,2 @@
 echo copy test files
-xcopy /y Test\origin\*.mp3 Test\
+xcopy /y /e Test_origin Test

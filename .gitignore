@@ -1,4 +1,5 @@
 *.exe
 *.dll
-Test/*.mp3
-Test/origin
+Test/*
+!test_pretask.bat
+Test_origin
