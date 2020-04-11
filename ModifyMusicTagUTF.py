@@ -116,26 +116,36 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 				#print("find cp932:"+str(member)+"["+str(value)+"]")
 				#print(str(member) + ":" +utf_string)
 
-				is_skipped = False
+				#もともとの文字列長と、CP932に変換した文字列長が同じだったら変換しない
+				if len(value) != len(utf_string):
 
-				try:
-					#変換したタグを保存
-					if not isCheckOnly:
-						setattr(tags,member,utf_string)
-						tags.save(encoding='utf-16', version=tags.version)
+					is_skipped = False
 
-					#ログを出力
-					if is_first_tag:
-						logConvertFile.write(str(file.resolve())+"\n")
-						logConvertFile.write("\t"+"Tag version " + str(tags.version) + "\n" )
-						is_first_tag = False
-					logConvertFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
+					try:
+						#変換したタグを保存
+						if not isCheckOnly:
+							setattr(tags,member,utf_string)
+							#2.2.0のセーブは実装されていない, 1.0.0はUTFで保存するとおかしくなる
+							if ( tags.version == eyed3.id3.ID3_V2_2 or tags.version == eyed3.id3.ID3_V1_0):
+								tags.save(encoding='utf-16', version=(2,3,0))
+							else:
+								tags.save(encoding='utf-16', version=tags.version)
 
-				except Exception as e:
-					# Ascii+Latin1の場合ここに来る可能性あり
-					logErrorFile.write(str(file.resolve())+"\n")
-					logErrorFile.write("\tno converted utf id3 tag save error" +"\n")
-					logErrorFile.write("\t" + str(e) +"\n")
+						#ログを出力
+						if is_first_tag:
+							logConvertFile.write(str(file.resolve())+"\n")
+							logConvertFile.write("\t"+"Tag version " + str(tags.version) + "\n" )
+							is_first_tag = False
+						logConvertFile.write("\t"+str(member) + ":" +utf_string+"\n")
+						#logConvertFile.write("\tstring length " +str(len(value))+">"+str(len(utf_string)) )
+
+					except Exception as e:
+						# Ascii+Latin1の場合ここに来る可能性あり
+						logErrorFile.write(str(file.resolve())+"\n")
+						logErrorFile.write("\tno converted utf id3 tag save error" +"\n")
+						logErrorFile.write("\t" + str(e) +"\n")
+				else:
+					print("skip cp932:"+str(member)+"["+str(value)+"] utr[" +utf_string+"] len "+ str(len(value)))
 
 		# そもそもタグが入っていないケース
 		if tags is None or tags.title is None:
