@@ -21,7 +21,7 @@ cMinStringLengthAlbumPath = 10
 
 re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
 re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
-re_title_from_albam_filename = re.compile('^\\s*[0-9]+\\s*[_]*(.+)\\.mp3')
+re_title_from_albam_filename = re.compile('^\\s*([0-9]+)\\s*[_]*(.+)\\.mp3')
 
 
 
@@ -98,11 +98,13 @@ def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
 		return True
 	#ファイル名が数字****.mp3の場合は、Albamだと思われるので、親フォルダをalbumにセットする
 	elif re_title_from_albam_filename.match ( filename ):
-		title = re_title_from_albam_filename.sub('\\1', filename)
+		track = re_title_from_albam_filename.sub('\\1', filename)
+		title = re_title_from_albam_filename.sub('\\2', filename)
+
 		album = inFile.parent.name
 
 		logNoTagAlbumFile.write(str(inFile.resolve())+"\n")
-		logNoTagAlbumFile.write("\talbum:"+album + "\n\tTitle:" + title +"\n")
+		logNoTagAlbumFile.write("\talbum:"+album + "\n\tTrack:" + track + "\n\tTitle:" + title +"\n")
 		
 		#変換したタグを保存
 		if not isCheckOnly:
@@ -111,6 +113,7 @@ def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
 			tags.artist = album
 			tags.album = album
 			tags.title = title
+			tags.track_num = track
 			tags.save(encoding='utf-16', version=(2, 3, 0))
 			
 		return True
@@ -174,9 +177,9 @@ class MyID3V1:
 			# offset = 97, size=28 or 30
 			f_handle.seek(tag_offset + 97)
 			if self.track_active:
-				self.comment = f_handle.read(28).decode("latin1")
+				self.comments = f_handle.read(28).decode("latin1")
 			else:
-				self.comment = f_handle.read(30).decode("latin1")
+				self.comments = f_handle.read(30).decode("latin1")
 			# offset = 126, size=1
 			if self.track_active:
 				f_handle.seek(tag_offset + 126)
@@ -188,50 +191,51 @@ class MyID3V1:
 			self.title_modified = False
 			self.artist_modified = False
 			self.album_modified = False
-			self.comment_modified = False
+			self.comments_modified = False
 
 			self.isV1TagLoaded = True
 		f_handle.close()
 
+	def sjis_to_utf_target(self, inTags, inAttributeName):
+		utf_string = [""]
+
+		# V2タグが存在していて変換処理が終わっている場合、V1タグを削除する
+		is_exist_v2_string = False
+		v2_attribute = getattr(inTags, inAttributeName)
+		is_comments = type(v2_attribute) == eyed3.id3.tag.CommentsAccessor
+		if is_comments:
+			is_exist_v2_string = v2_attribute is not None and len(v2_attribute) > 0 and v2_attribute[0] is not None and v2_attribute[0].text is not ''
+		else:
+			is_exist_v2_string = v2_attribute is not None and v2_attribute is not ''
+		if is_exist_v2_string:
+			setattr(self, inAttributeName, '')
+			setattr(self, inAttributeName+"_modified", True)
+		else:
+			is_v1_string_over =[False]
+			if TrySjisToUtf(getattr(self, inAttributeName), utf_string, True, is_v1_string_over):
+				setattr(self, inAttributeName, utf_string[0])
+				setattr(self, inAttributeName+"_modified", True)
+				
+				#V1にだけ存在したタグはV2にもコピーしておく
+				if is_comments:
+					inTags.comments.set(utf_string[0])
+				else:
+					setattr(inTags,inAttributeName,utf_string[0])
+				logConvertFile.write("\t"+inAttributeName + ":" +utf_string[0]+"\n")
+				return True
+		return False
+
 	def sjis_to_utf(self, inTags):
 		if not self.isV1TagLoaded:
 			return False
-		# 変換候補は、title artist album comment
-		# V2タグが存在していて変換処理が終わっている場合、V1タグを削除する
-		utf_string = [""]
-		if inTags.title is not None and inTags.title is not '':
-			self.title = ''
-			self.title_modified = True
-		else:
-			is_v1_string_over =[False]
-			if TrySjisToUtf(self.title, utf_string, True, is_v1_string_over):
-				self.title = utf_string[0]
-				self.title_modified = True
-		if inTags.artist is not None and inTags.artist is not '':
-			self.artist = ''
-			self.artist_modified = True
-		else:
-			is_v1_string_over =[False]
-			if TrySjisToUtf(self.artist, utf_string, True, is_v1_string_over):
-				self.artist = utf_string[0]
-				self.artist_modified = True
-		if inTags.album is not None and inTags.album is not '':
-			self.album = ''
-			self.album_modified = True
-		else:
-			is_v1_string_over =[False]
-			if TrySjisToUtf(self.album, utf_string, True, is_v1_string_over):
-				self.album = utf_string[0]
-				self.album_modified = True
-		if inTags.comments is not None and inTags.comments[0] is not None and inTags.comments[0].text is not '':
-			self.comments = ''
-			self.comment_modified = True
-		else:
-			is_v1_string_over =[False]
-			if TrySjisToUtf(self.comment, utf_string, True, is_v1_string_over):
-				self.comment = utf_string[0]
-				self.comment_modified = True
-		res = self.title_modified or self.artist_modified or self.album_modified or self.comment_modified
+		is_v2tag_copied = False
+		# 変換候補は、title artist album comments
+		is_v2tag_copied |= self.sjis_to_utf_target(inTags,"title")
+		is_v2tag_copied |= self.sjis_to_utf_target(inTags,"artist")
+		is_v2tag_copied |= self.sjis_to_utf_target(inTags,"album")
+		is_v2tag_copied |= self.sjis_to_utf_target(inTags,"comments")
+
+		res = self.title_modified or self.artist_modified or self.album_modified or self.comments_modified
 		if res:
 			logConvertFileV1Tag.write(str(self.filePath.resolve())+"\n")
 			if self.title_modified:
@@ -240,14 +244,15 @@ class MyID3V1:
 				logConvertFileV1Tag.write("\tartist:" +self.artist+"\n")
 			if self.album_modified:
 				logConvertFileV1Tag.write("\talbum:" +self.album+"\n")
-			if self.comment_modified:
-				logConvertFileV1Tag.write("\tcomment:" +self.comment+"\n")
+			if self.comments_modified:
+				logConvertFileV1Tag.write("\tcomments:" +self.comments+"\n")
+		return is_v2tag_copied
 			
 
 	def save(self):
 		if not self.isV1TagLoaded:
 			return False
-		if self.title_modified or self.artist_modified or self.album_modified or self.comment_modified:
+		if self.title_modified or self.artist_modified or self.album_modified or self.comments_modified:
 			f_handle = open(self.filePath,'wb')
 			if not f_handle.writable():
 				return False
@@ -288,12 +293,12 @@ class MyID3V1:
 					else:
 						wirte_buffer[tag_offset+63+i] = 32
 						
-			if self.comment_modified:
+			if self.comments_modified:
 				# offset = 97, size=28 or 30
 				max_length = 30
 				if self.track_active:
 					max_length = 28
-				row_string = self.comment.encode('utf-8')
+				row_string = self.comments.encode('utf-8')
 				row_string_length = len(row_string)
 				
 				for i in range(max_length):
@@ -389,9 +394,15 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 		else:
 			#eyed3は、ID3v1からAlbum情報を読み込めていない。V1とV2が異なるケースで、変換できない文字が残ってしまう
 			id3v1_tag = MyID3V1(file)
-			id3v1_tag.sjis_to_utf(tags)
+			is_v2tag_copied = id3v1_tag.sjis_to_utf(tags)
 			if not isCheckOnly:
 				id3v1_tag.save()
+				if is_v2tag_copied:
+					if ( tags.version == eyed3.id3.ID3_V2_2 or tags.version == eyed3.id3.ID3_V1_0 or tags.version == eyed3.id3.ID3_V1_1):
+						tags.save(encoding='utf-16', version=(2,3,0))
+					else:
+						tags.save(encoding='utf-16', version=tags.version)
+
 
 		#print("***********************")
 
@@ -443,6 +454,11 @@ if __name__ == "__main__":
 						ExecTagCheck(outLogPath,Path(arg),isCheckOnly)
 
 		logConvertFile.close()
+		logConvertFileV1StringOver.close()
+		logConvertFileV1Tag.close()
 		logErrorFile.close()
 		logNoTagFile.close()
+		logNoTagAlbumFile.close()
+		logNoTagUnknownFile.close()
+		logSkipFile.close()
 	
