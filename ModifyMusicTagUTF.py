@@ -16,13 +16,16 @@ logNoTagFile = Path()
 logNoTagAlbumFile = Path()
 logNoTagUnknownFile = Path()
 logSkipFile = Path()
+logCheckAlbumError = Path()
+logForceSetAlbumFile = Path()
 
 cMinStringLengthAlbumPath = 10
 
 re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
 re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
-re_title_from_albam_filename = re.compile('^\\s*([0-9]+)\\s*[_]*(.+)\\.mp3')
+re_title_from_albam_filename = re.compile('^\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
 
+re_force_set_album = re.compile('^(.+)\t(.+)$')
 
 
 #文字が全部?の場合は、そもそもCDをmp3にコンバートする際になにかエラーをおこしたファイルの可能性が高いのでチェックする
@@ -310,11 +313,63 @@ class MyID3V1:
 			f_handle.write(wirte_buffer)
 
 			f_handle.close()
+#アルバムタグが存在するかチェック
+def CheckAlbumTag(inTags, inFile, inCheckAlbumFolderNames):
+	if len(inCheckAlbumFolderNames) is 0:
+		return False
+	if inTags is None or inTags.album is None or inTags.album is '':
+		fileName = str ( inFile.resolve() )
+		for cf in inCheckAlbumFolderNames:
+			cf = cf.replace('\\', '\\\\')
+			cf = cf.replace (':', '\\:')
+			pattern = '^'+cf+"\\\\.+\\\\"
+			if re.match(pattern, fileName, re.IGNORECASE ):
+			#if cf in fileName:
+				logCheckAlbumError.write(fileName+"\n")
+				return True
+	return False
 
+#アルバムタグ強制セット
+def ForceSetAlbumTag(inTags, inFile, inForceSetAlbumConf):
+	if len(inForceSetAlbumConf) is 0:
+		return False
+
+	if inTags is None or inTags.album is None or inTags.album is '':
+		fileName = str ( inFile.resolve() )
+		for conf in inForceSetAlbumConf:
+			cf = conf[0].replace('\\', '\\\\')
+			cf = cf.replace (':', '\\:')
+			pattern = '^'+cf
+			if re.match(pattern, fileName, re.IGNORECASE ):
+				inTags.album = conf[1]
+				if inTags is None:
+					logErrorFile.write(fileName+"\n")
+					logErrorFile.write("\tforce set album target but no tags" +"\n")
+					return False
+				if inTags.track_num is None or inTags.track_num[0] is None or  inTags.track_num[0] is '':
+					track = ''
+					if re_title_from_albam_filename.match ( inFile.name ):
+						track = re_title_from_albam_filename.sub('\\1', inFile.name)
+						inTags.track_num = track
+					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(track)+"\n")
+				else:
+					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
+				return True
+	return False
 
 #フォルダ単位で変換処理実行
-def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
+def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSetAlbumConf):
 	print( "checking folder : " + str(inFolder.name) )
+
+
+	checkAlbumFolderNames = []
+	for f in inCheckAlbumFolders:
+		checkAlbumFolderNames.append( str(inFolder.resolve()) + "\\" + f)
+		
+	forceSetAlbumConf = []
+	for f in inForceSetAlbumConf:
+		forceSetAlbumConf.append( [ str(inFolder.resolve()) + "\\" + f[0], f[1] ])
+
 
 	#ファイルの解析
 	files_list = inFolder.glob("**/*.mp3")
@@ -404,8 +459,43 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 						tags.save(encoding='utf-16', version=tags.version)
 
 
+		# アルバムタグチェックは、UTFコンバートと関係なく行う
+
+		# ここはチェックだけ
+		CheckAlbumTag(tags, file, checkAlbumFolderNames)
+
+		# アルバムタグ強制補正
+		res_force_set_album = ForceSetAlbumTag(tags,file,forceSetAlbumConf)
+		if not isCheckOnly and res_force_set_album:
+			if ( tags.version == eyed3.id3.ID3_V2_2 or tags.version == eyed3.id3.ID3_V1_0 or tags.version == eyed3.id3.ID3_V1_1):
+				tags.save(encoding='utf-16', version=(2,3,0))
+			else:
+				tags.save(encoding='utf-16', version=tags.version)
+
 		#print("***********************")
 
+# Albumチェック対象フォルダ取得
+def GetCheckAlbumFolers ( inCheckFile ):
+	res = []
+	with open(str(inCheckFile.resolve())) as f:
+		for s_line in f:
+			folder = str(s_line).strip()
+			if folder is not '':
+				res.append(folder)
+	return res
+
+# Album強制セット対象フォルダ取得
+def GetForceSetAlbumFolers( inCheckFile ):
+	res = []
+	with open(str(inCheckFile.resolve())) as f:
+		for s_line in f:
+			line = str(s_line).strip()
+			if line is not '':
+				# パス\tアルバム名
+				path = re_force_set_album.sub('\\1', line)
+				album = re_force_set_album.sub('\\2', line)
+				res.append([path,album])
+	return res
 
 #main
 if __name__ == "__main__":
@@ -413,8 +503,10 @@ if __name__ == "__main__":
 
 	args = sys.argv
 	if len(args) < 2:
-		print(	'userge:\n ModifyMusicTagsUTF.py [log out path] [-c] [in convert folder path]\n'
-			+ '[-c] check only(not save)')
+		print(	'userge:\n ModifyMusicTagsUTF.py [log out path] [-c] [-ac [conf.txt]] [-fa [conf.txt]] [in convert folder path]\n'
+			+ '[-c] check only(not save)\n'
+			+ '[-ac] album tag check : config file "root folder path"\n'
+			+ '[-fa] force set album tag : config file "target folder path\tAlbumName"')
 	else:
 		outLogPath = Path(args[1])
 		if not outLogPath.exists():
@@ -445,13 +537,38 @@ if __name__ == "__main__":
 		logSkipFile.write("skip file list\n\n")
 
 		isCheckOnly = False
+
+		isCheckAlbum = False
+		checkAlbumFolders = []
+		is_ac_conf = False
+
+		isForceSetAlbum = False
+		forceSetAlbumConf = []
+		is_fa_conf = False
+
 		for count,arg in enumerate(args):
 			if count > 1:
 				if arg == '-c':
 					isCheckOnly = True
+				elif arg == '-ac':
+					is_ac_conf = True
+					isCheckAlbum = True
+					logCheckAlbumError = (outLogPath / "logCheckAlbumError.txt").open(mode='w', encoding='UTF-8')
+					logCheckAlbumError.write("album check error file list\n\n")
+				elif arg == '-fa':
+					is_fa_conf = True
+					isForceSetAlbum = True
+					logForceSetAlbumFile = (outLogPath / "logForceSetAlbumFile.txt").open(mode='w', encoding='UTF-8')
+					logForceSetAlbumFile.write("force album tag set file list\n\n")
 				else:
-					if os.path.exists(arg):
-						ExecTagCheck(outLogPath,Path(arg),isCheckOnly)
+					if is_ac_conf :
+						checkAlbumFolders = GetCheckAlbumFolers ( Path(arg) )
+						is_ac_conf = False
+					if is_fa_conf :
+						forceSetAlbumConf = GetForceSetAlbumFolers ( Path(arg) )
+						is_fa_conf = False
+					elif os.path.exists(arg):
+						ExecTagCheck(outLogPath,Path(arg),isCheckOnly,checkAlbumFolders, forceSetAlbumConf)
 
 		logConvertFile.close()
 		logConvertFileV1StringOver.close()
@@ -461,4 +578,8 @@ if __name__ == "__main__":
 		logNoTagAlbumFile.close()
 		logNoTagUnknownFile.close()
 		logSkipFile.close()
+		if isCheckAlbum:
+			logCheckAlbumError.close()
+		if isForceSetAlbum:
+			logForceSetAlbumFile.close()
 	

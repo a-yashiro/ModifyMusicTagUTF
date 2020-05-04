@@ -14,6 +14,10 @@
             "args":[
                 "${env:USERPROFILE}\\Documents\\ModifyMusicTagUTF",
                 //"-c",
+                //"-ac",
+                //"${workspaceRoot}\\Test\\album_check_folders.txt",
+                "-fa",
+                "${workspaceRoot}\\Test\\force_set_album.txt",
                 "${workspaceRoot}\\Test"
             ]
         }
