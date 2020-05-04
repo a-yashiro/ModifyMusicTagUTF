@@ -10,6 +10,7 @@ import copy
 #global変数
 logConvertFile = Path()
 logConvertFileV1StringOver = Path()
+logConvertFileV1Tag = Path()
 logErrorFile = Path()
 logNoTagFile = Path()
 logNoTagAlbumFile = Path()
@@ -138,7 +139,7 @@ def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
 
 
 
-#eyed3が処理できてないことがあるのでID3v1タグを自前処理するクラス
+#eyed3がID3v1とID3v2が混在したファイルを正しく処理できてないことがあるのでID3v1タグだけ自前で読み書きするクラス
 class MyID3V1:
 	"""ID3v1 tag class with binary loader."""
 	
@@ -147,9 +148,9 @@ class MyID3V1:
 		self.filePath = inFile
 
 		f_handle = open(self.filePath,'rb')
-		binary_data = f_handle.read()
-		data_size = len(binary_data)
-		tag_offset = data_size - 128
+		self.binary_data = f_handle.read()
+		self.data_size = len(self.binary_data)
+		tag_offset = self.data_size - 128
 		f_handle.seek(tag_offset)
 
 		# offset = 0, size=3
@@ -184,8 +185,127 @@ class MyID3V1:
 			f_handle.seek(tag_offset + 127)
 			self.genre = f_handle.read(1)[0]
 
+			self.title_modified = False
+			self.artist_modified = False
+			self.album_modified = False
+			self.comment_modified = False
+
 			self.isV1TagLoaded = True
 		f_handle.close()
+
+	def sjis_to_utf(self, inTags):
+		if not self.isV1TagLoaded:
+			return False
+		# 変換候補は、title artist album comment
+		# V2タグが存在していて変換処理が終わっている場合、V1タグを削除する
+		utf_string = [""]
+		if inTags.title is not None and inTags.title is not '':
+			self.title = ''
+			self.title_modified = True
+		else:
+			is_v1_string_over =[False]
+			if TrySjisToUtf(self.title, utf_string, True, is_v1_string_over):
+				self.title = utf_string[0]
+				self.title_modified = True
+		if inTags.artist is not None and inTags.artist is not '':
+			self.artist = ''
+			self.artist_modified = True
+		else:
+			is_v1_string_over =[False]
+			if TrySjisToUtf(self.artist, utf_string, True, is_v1_string_over):
+				self.artist = utf_string[0]
+				self.artist_modified = True
+		if inTags.album is not None and inTags.album is not '':
+			self.album = ''
+			self.album_modified = True
+		else:
+			is_v1_string_over =[False]
+			if TrySjisToUtf(self.album, utf_string, True, is_v1_string_over):
+				self.album = utf_string[0]
+				self.album_modified = True
+		if inTags.comments is not None and inTags.comments[0] is not None and inTags.comments[0].text is not '':
+			self.comments = ''
+			self.comment_modified = True
+		else:
+			is_v1_string_over =[False]
+			if TrySjisToUtf(self.comment, utf_string, True, is_v1_string_over):
+				self.comment = utf_string[0]
+				self.comment_modified = True
+		res = self.title_modified or self.artist_modified or self.album_modified or self.comment_modified
+		if res:
+			logConvertFileV1Tag.write(str(self.filePath.resolve())+"\n")
+			if self.title_modified:
+				logConvertFileV1Tag.write("\ttitle:" +self.title+"\n")
+			if self.artist_modified:
+				logConvertFileV1Tag.write("\tartist:" +self.artist+"\n")
+			if self.album_modified:
+				logConvertFileV1Tag.write("\talbum:" +self.album+"\n")
+			if self.comment_modified:
+				logConvertFileV1Tag.write("\tcomment:" +self.comment+"\n")
+			
+
+	def save(self):
+		if not self.isV1TagLoaded:
+			return False
+		if self.title_modified or self.artist_modified or self.album_modified or self.comment_modified:
+			f_handle = open(self.filePath,'wb')
+			if not f_handle.writable():
+				return False
+
+			tag_offset = self.data_size - 128
+			wirte_buffer = bytearray(self.binary_data)
+			
+			if self.title_modified:
+				# offset = 3, size=30
+				row_string = self.title.encode('utf-8')
+				row_string_length = len(row_string)
+				
+				for i in range(30):
+					if i < row_string_length:
+						wirte_buffer[tag_offset+3+i] = row_string[i]
+					else:
+						wirte_buffer[tag_offset+3+i] = 32
+				
+			if self.artist_modified:
+				# offset = 33, size=30
+				row_string = self.artist.encode('utf-8')
+				row_string_length = len(row_string)
+				
+				for i in range(30):
+					if i < row_string_length:
+						wirte_buffer[tag_offset+33+i] = row_string[i]
+					else:
+						wirte_buffer[tag_offset+33+i] = 32
+
+			if self.album_modified:
+				# offset = 63, size=30
+				row_string = self.album.encode('utf-8')
+				row_string_length = len(row_string)
+				
+				for i in range(30):
+					if i < row_string_length:
+						wirte_buffer[tag_offset+63+i] = row_string[i]
+					else:
+						wirte_buffer[tag_offset+63+i] = 32
+						
+			if self.comment_modified:
+				# offset = 97, size=28 or 30
+				max_length = 30
+				if self.track_active:
+					max_length = 28
+				row_string = self.comment.encode('utf-8')
+				row_string_length = len(row_string)
+				
+				for i in range(max_length):
+					if i < row_string_length:
+						wirte_buffer[tag_offset+97+i] = row_string[i]
+					else:
+						wirte_buffer[tag_offset+97+i] = 32
+
+			f_handle.write(wirte_buffer)
+
+			f_handle.close()
+
 
 #フォルダ単位で変換処理実行
 def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
@@ -209,9 +329,6 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 		is_skipped = True
 
 		if tags is not None:
-
-			#eyed3は、ID3v1からAlbum情報を読み込めていない。V1とV2が異なるケースで、変換できない文字が残ってしまう
-			id3v1_tag = MyID3V1(file)
 
 			for member, value in inspect.getmembers(tags):
 				utf_string = [""]
@@ -246,8 +363,6 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 							logConvertFile.write("\t"+"Tag version " + str(tags.version) + "\n" )
 							is_first_tag = False
 						logConvertFile.write("\t"+str(member) + ":" +utf_string[0]+"\n")
-						if need_copy_album_from_artist and member is 'artist':
-							logConvertFile.write("\t"+"copy artist to album"+"\n")
 					#logConvertFile.write("\tstring length " +str(len(value))+">"+str(len(utf_string[0])) )
 
 					except Exception as e:
@@ -271,6 +386,12 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly):
 
 		if is_skipped:
 			logSkipFile.write(str(file.resolve())+"\n")
+		else:
+			#eyed3は、ID3v1からAlbum情報を読み込めていない。V1とV2が異なるケースで、変換できない文字が残ってしまう
+			id3v1_tag = MyID3V1(file)
+			id3v1_tag.sjis_to_utf(tags)
+			if not isCheckOnly:
+				id3v1_tag.save()
 
 		#print("***********************")
 
@@ -299,6 +420,8 @@ if __name__ == "__main__":
 		logConvertFile.write("cp932 tag convert file list\n\n")
 		logConvertFileV1StringOver= (outLogPath / "logConvertFileV1StringOver.txt").open(mode='w', encoding='UTF-8')
 		logConvertFileV1StringOver.write("cp932 tag convert but V1 string length over file list\n\n")
+		logConvertFileV1Tag= (outLogPath / "logConvertFileV1Tag.txt").open(mode='w', encoding='UTF-8')
+		logConvertFileV1Tag.write("cp932 tag convert modified v1 tag file list\n\n")
 		logErrorFile = (outLogPath / "logErrorFile.txt").open(mode='w', encoding='UTF-8')
 		logErrorFile.write("convert error file list\n\n")
 		logNoTagFile = (outLogPath / "logNoTagFiles.txt").open(mode='w', encoding='UTF-8')
