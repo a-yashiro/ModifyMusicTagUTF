@@ -334,27 +334,26 @@ def ForceSetAlbumTag(inTags, inFile, inForceSetAlbumConf):
 	if len(inForceSetAlbumConf) is 0:
 		return False
 
-	if inTags is None or inTags.album is None or inTags.album is '':
-		fileName = str ( inFile.resolve() )
-		for conf in inForceSetAlbumConf:
-			cf = conf[0].replace('\\', '\\\\')
-			cf = cf.replace (':', '\\:')
-			pattern = '^'+cf
-			if re.match(pattern, fileName, re.IGNORECASE ):
-				inTags.album = conf[1]
-				if inTags is None:
-					logErrorFile.write(fileName+"\n")
-					logErrorFile.write("\tforce set album target but no tags" +"\n")
-					return False
-				if inTags.track_num is None or inTags.track_num[0] is None or  inTags.track_num[0] is '':
-					track = ''
-					if re_title_from_albam_filename.match ( inFile.name ):
-						track = re_title_from_albam_filename.sub('\\1', inFile.name)
-						inTags.track_num = track
-					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(track)+"\n")
-				else:
-					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
-				return True
+	fileName = str ( inFile.resolve() )
+	for conf in inForceSetAlbumConf:
+		cf = conf[0].replace('\\', '\\\\')
+		cf = cf.replace (':', '\\:')
+		pattern = '^'+cf
+		if re.match(pattern, fileName, re.IGNORECASE ):
+			inTags.album = conf[1]
+			if inTags is None:
+				logErrorFile.write(fileName+"\n")
+				logErrorFile.write("\tforce set album target but no tags" +"\n")
+				return False
+			if inTags.track_num is None or inTags.track_num[0] is None or  inTags.track_num[0] is '':
+				track = ''
+				if re_title_from_albam_filename.match ( inFile.name ):
+					track = re_title_from_albam_filename.sub('\\1', inFile.name)
+					inTags.track_num = track
+				logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(track)+"\n")
+			else:
+				logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
+			return True
 	return False
 
 #フォルダ単位で変換処理実行
