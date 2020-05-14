@@ -26,6 +26,7 @@ re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
 re_title_from_albam_filename = re.compile('^\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
 
 re_force_set_album = re.compile('^(.+)\t(.+)$')
+re_force_set_album_with_index = re.compile('^(.+)\t(.+)\t([0-9]+)$')
 
 
 #文字が全部?の場合は、そもそもCDをmp3にコンバートする際になにかエラーをおこしたファイルの可能性が高いのでチェックする
@@ -204,7 +205,9 @@ class MyID3V1:
 
 		# V2タグが存在していて変換処理が終わっている場合、V1タグを削除する
 		is_exist_v2_string = False
-		v2_attribute = getattr(inTags, inAttributeName)
+		v2_attribute = None
+		if inTags is not None:
+			v2_attribute = getattr(inTags, inAttributeName)
 		is_comments = type(v2_attribute) == eyed3.id3.tag.CommentsAccessor
 		if is_comments:
 			is_exist_v2_string = v2_attribute is not None and len(v2_attribute) > 0 and v2_attribute[0] is not None and v2_attribute[0].text is not ''
@@ -220,11 +223,12 @@ class MyID3V1:
 				setattr(self, inAttributeName+"_modified", True)
 				
 				#V1にだけ存在したタグはV2にもコピーしておく
-				if is_comments:
-					inTags.comments.set(utf_string[0])
-				else:
-					setattr(inTags,inAttributeName,utf_string[0])
-				logConvertFile.write("\t"+inAttributeName + ":" +utf_string[0]+"\n")
+				if inTags is not None:
+					if is_comments:
+						inTags.comments.set(utf_string[0])
+					else:
+						setattr(inTags,inAttributeName,utf_string[0])
+					logConvertFile.write("\t"+inAttributeName + ":" +utf_string[0]+"\n")
 				return True
 		return False
 
@@ -338,6 +342,8 @@ def ForceSetAlbumTag(inTags, inFile, inForceSetAlbumConf):
 	for conf in inForceSetAlbumConf:
 		cf = conf[0].replace('\\', '\\\\')
 		cf = cf.replace (':', '\\:')
+		cf = cf.replace('(', '\\(')
+		cf = cf.replace(')', '\\)')
 		pattern = '^'+cf
 		if re.match(pattern, fileName, re.IGNORECASE ):
 			inTags.album = conf[1]
@@ -349,10 +355,16 @@ def ForceSetAlbumTag(inTags, inFile, inForceSetAlbumConf):
 				track = ''
 				if re_title_from_albam_filename.match ( inFile.name ):
 					track = re_title_from_albam_filename.sub('\\1', inFile.name)
-					inTags.track_num = track
-				logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(track)+"\n")
+					inTags.track_num = track + conf[2]
+					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(inTags.track_num)+"\n")
+				else:
+					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
 			else:
-				logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
+				if conf[2] is not 0:
+					inTags.track_num = inTags.track_num[0] + conf[2]
+					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(inTags.track_num)+"\n")
+				else:
+					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
 			return True
 	return False
 
@@ -367,7 +379,7 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 		
 	forceSetAlbumConf = []
 	for f in inForceSetAlbumConf:
-		forceSetAlbumConf.append( [ str(inFolder.resolve()) + "\\" + f[0], f[1] ])
+		forceSetAlbumConf.append( [ str(inFolder.resolve()) + "\\" + f[0], f[1], f[2] ])
 
 
 	#ファイルの解析
@@ -382,7 +394,9 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 		#タグ解析
 		#Invalid UFIDのエラー時々出て邪魔
 		audiofile = eyed3.load(file)
-		tags = audiofile.tag
+		tags = None
+		if audiofile is not None:
+			tags = audiofile.tag
 
 		is_first_tag = True
 		is_skipped = True
@@ -439,9 +453,16 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 
 		# そもそもタグが入っていないケース
 		if tags is None or tags.title is None:
-			#logNoTagFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
-			is_skipped = False
-			CreateID3TagsFromFileName(file,audiofile, isCheckOnly)
+			#audiofileすら読めてないことがある、なぜ?
+			if audiofile is not None:
+				#logNoTagFile.write("\t"+str(member) + ":" +bytes(value,"latin1").decode("cp932")+"\n")
+				is_skipped = False
+				CreateID3TagsFromFileName(file,audiofile, isCheckOnly)
+			else:
+				is_skipped = False
+				logErrorFile.write(str(file.resolve())+"\n")
+				logErrorFile.write("\teyeD3 can not read audio file" +"\n")
+
 
 		if is_skipped:
 			logSkipFile.write(str(file.resolve())+"\n")
@@ -451,7 +472,7 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 			is_v2tag_copied = id3v1_tag.sjis_to_utf(tags)
 			if not isCheckOnly:
 				id3v1_tag.save()
-				if is_v2tag_copied:
+				if is_v2tag_copied and tags is not None:
 					if ( tags.version == eyed3.id3.ID3_V2_2 or tags.version == eyed3.id3.ID3_V1_0 or tags.version == eyed3.id3.ID3_V1_1):
 						tags.save(encoding='utf-16', version=(2,3,0))
 					else:
@@ -490,10 +511,16 @@ def GetForceSetAlbumFolers( inCheckFile ):
 		for s_line in f:
 			line = str(s_line).strip()
 			if line is not '':
-				# パス\tアルバム名
-				path = re_force_set_album.sub('\\1', line)
-				album = re_force_set_album.sub('\\2', line)
-				res.append([path,album])
+				# パス\tアルバム名\tIndex
+				if re_force_set_album_with_index.match(line):
+					path = re_force_set_album_with_index.sub('\\1', line)
+					album = re_force_set_album_with_index.sub('\\2', line)
+					offset = int(re_force_set_album_with_index.sub('\\3', line))
+					res.append([path,album,offset])
+				elif re_force_set_album.match(line):
+					path = re_force_set_album.sub('\\1', line)
+					album = re_force_set_album.sub('\\2', line)
+					res.append([path,album,0])
 	return res
 
 #main
@@ -505,7 +532,7 @@ if __name__ == "__main__":
 		print(	'userge:\n ModifyMusicTagsUTF.py [log out path] [-c] [-ac [conf.txt]] [-fa [conf.txt]] [in convert folder path]\n'
 			+ '[-c] check only(not save)\n'
 			+ '[-ac] album tag check : config file "root folder path"\n'
-			+ '[-fa] force set album tag : config file "target folder path\tAlbumName"')
+			+ '[-fa] force set album tag : config file "target folder path\tAlbumName\tIndexOffset(option)"')
 	else:
 		outLogPath = Path(args[1])
 		if not outLogPath.exists():
