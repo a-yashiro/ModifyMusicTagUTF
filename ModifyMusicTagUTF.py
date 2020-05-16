@@ -12,6 +12,7 @@ logConvertFile = Path()
 logConvertFileV1StringOver = Path()
 logConvertFileV1Tag = Path()
 logErrorFile = Path()
+errorFileCount = 0
 logNoTagFile = Path()
 logNoTagAlbumFile = Path()
 logNoTagUnknownFile = Path()
@@ -23,7 +24,8 @@ cMinStringLengthAlbumPath = 10
 
 re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
 re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
-re_title_from_albam_filename = re.compile('^\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
+re_title_from_albam_filename  = re.compile('^\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
+re_title_from_albam_filename2 = re.compile('^\\s*\\(.+\\)\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
 
 re_force_set_album = re.compile('^(.+)\t(.+)$')
 re_force_set_album_with_index = re.compile('^(.+)\t(.+)\t([0-9]+)$')
@@ -81,6 +83,7 @@ def TrySjisToUtf(inString, outString, inIsV1, outIsV1StringOver):
 
 #そもそもID3タグがはいってないので、ファイル名からタグを作る
 def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
+	global errorFileCount
 	filename = inFile.name
 	# ファイル名が (***)***.mp3の形式の場合
 	if re_title_from_filename.match ( filename ):
@@ -101,9 +104,13 @@ def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
 			
 		return True
 	#ファイル名が数字****.mp3の場合は、Albamだと思われるので、親フォルダをalbumにセットする
-	elif re_title_from_albam_filename.match ( filename ):
-		track = re_title_from_albam_filename.sub('\\1', filename)
-		title = re_title_from_albam_filename.sub('\\2', filename)
+	elif re_title_from_albam_filename.match ( filename ) or re_title_from_albam_filename2.match ( filename ):
+		if re_title_from_albam_filename.match ( filename ):
+			track = re_title_from_albam_filename.sub('\\1', filename)
+			title = re_title_from_albam_filename.sub('\\2', filename)
+		else:
+			track = re_title_from_albam_filename2.sub('\\1', filename)
+			title = re_title_from_albam_filename2.sub('\\2', filename)
 
 		album = inFile.parent.name
 
@@ -142,6 +149,7 @@ def CreateID3TagsFromFileName(inFile,inAudioFile,isCheckOnly):
 	else:
 		logErrorFile.write(str(inFile.resolve())+"\n")
 		logErrorFile.write("\tno ID3 tag but wrong file name pattern" +"\n")
+		errorFileCount += 1
 		return False
 
 
@@ -334,9 +342,12 @@ def CheckAlbumTag(inTags, inFile, inCheckAlbumFolderNames):
 	return False
 
 #アルバムタグ強制セット
-def ForceSetAlbumTag(inTags, inFile, inForceSetAlbumConf):
+def ForceSetAlbumTag(inFile, inAudioFile, inForceSetAlbumConf):
+	global errorFileCount
 	if len(inForceSetAlbumConf) is 0:
 		return False
+
+	inTags = inAudioFile.tag
 
 	fileName = str ( inFile.resolve() )
 	for conf in inForceSetAlbumConf:
@@ -344,32 +355,50 @@ def ForceSetAlbumTag(inTags, inFile, inForceSetAlbumConf):
 		cf = cf.replace (':', '\\:')
 		cf = cf.replace('(', '\\(')
 		cf = cf.replace(')', '\\)')
+		cf = cf.replace('[', '\\[')
+		cf = cf.replace(']', '\\]')
 		pattern = '^'+cf
 		if re.match(pattern, fileName, re.IGNORECASE ):
-			inTags.album = conf[1]
+			# Album名は**\**だったら前半はアーティスト名
+			album = conf[1]
+			artist = ''
+			re_artist_and_album = re.compile('^(.+)\\\\(.+)$')
+			if re_artist_and_album.match(conf[1]):
+				artist = re_artist_and_album.sub('\\1', conf[1]) 
+				album = re_artist_and_album.sub('\\2', conf[1]) 
+
+			#タグの新規作成
 			if inTags is None:
-				logErrorFile.write(fileName+"\n")
-				logErrorFile.write("\tforce set album target but no tags" +"\n")
-				return False
+				inAudioFile.initTag()
+				inTags = inAudioFile.tag
+
+			inTags.album = album
+			if artist is not '':
+				inTags.artist = artist
 			if inTags.track_num is None or inTags.track_num[0] is None or  inTags.track_num[0] is '':
 				track = ''
 				if re_title_from_albam_filename.match ( inFile.name ):
 					track = re_title_from_albam_filename.sub('\\1', inFile.name)
-					inTags.track_num = track + conf[2]
-					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(inTags.track_num)+"\n")
+					inTags.track_num = int(track) + conf[2]
+					logForceSetAlbumFile.write(fileName+"\n\t"+artist +":"+ album+":"+str(inTags.track_num[0])+"\n")
+				elif re_title_from_albam_filename2.match ( inFile.name ):
+					track = re_title_from_albam_filename2.sub('\\1', inFile.name)
+					inTags.track_num = int(track) + conf[2]
+					logForceSetAlbumFile.write(fileName+"\n\t"+artist +":"+ album+":"+str(inTags.track_num[0])+"\n")
 				else:
-					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
+					logForceSetAlbumFile.write(fileName+"\n\t"+artist +":"+ album+"\n")
 			else:
 				if conf[2] is not 0:
 					inTags.track_num = inTags.track_num[0] + conf[2]
-					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+":"+str(inTags.track_num)+"\n")
+					logForceSetAlbumFile.write(fileName+"\n\t"+artist +":"+ album+":"+str(inTags.track_num[0])+"\n")
 				else:
-					logForceSetAlbumFile.write(fileName+"\n\t"+conf[1]+"\n")
+					logForceSetAlbumFile.write(fileName+"\n\t"+artist +":"+ album+"\n")
 			return True
 	return False
 
 #フォルダ単位で変換処理実行
 def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSetAlbumConf):
+	global errorFileCount
 	print( "checking folder : " + str(inFolder.name) )
 
 
@@ -443,6 +472,7 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 						logErrorFile.write(str(file.resolve())+"\n")
 						logErrorFile.write("\tno converted utf id3 tag save error" +"\n")
 						logErrorFile.write("\t" + str(e) +"\n")
+						errorFileCount += 1
 				else:
 					# エラーケース
 					if IsAllQuestionTag(value):
@@ -450,6 +480,7 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 						logErrorFile.write(str(file.resolve())+"\n")
 						logErrorFile.write("\tfind all question tag" +"\n")
 						logErrorFile.write("\t"+str(member) + ":" +value+"\n")
+						errorFileCount += 1
 
 		# そもそもタグが入っていないケース
 		if tags is None or tags.title is None:
@@ -462,6 +493,7 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 				is_skipped = False
 				logErrorFile.write(str(file.resolve())+"\n")
 				logErrorFile.write("\teyeD3 can not read audio file" +"\n")
+				errorFileCount += 1
 
 
 		if is_skipped:
@@ -485,8 +517,9 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 		CheckAlbumTag(tags, file, checkAlbumFolderNames)
 
 		# アルバムタグ強制補正
-		res_force_set_album = ForceSetAlbumTag(tags,file,forceSetAlbumConf)
+		res_force_set_album = ForceSetAlbumTag(file,audiofile,forceSetAlbumConf)
 		if not isCheckOnly and res_force_set_album:
+			tags = audiofile.tag
 			if ( tags.version == eyed3.id3.ID3_V2_2 or tags.version == eyed3.id3.ID3_V1_0 or tags.version == eyed3.id3.ID3_V1_1):
 				tags.save(encoding='utf-16', version=(2,3,0))
 			else:
@@ -608,4 +641,9 @@ if __name__ == "__main__":
 			logCheckAlbumError.close()
 		if isForceSetAlbum:
 			logForceSetAlbumFile.close()
+
+		print ("convert complete.")
+		if errorFileCount is not 0:
+			print ("error file " + str(errorFileCount))
+		
 	
