@@ -24,8 +24,8 @@ cMinStringLengthAlbumPath = 10
 
 re_title_from_filename = re.compile('^\\s*\\(.*\\)\\s*(.+)\\.mp3')
 re_artist_from_filename = re.compile('^\\s*\\((.*)\\)\\s*.+\\.mp3')
-re_title_from_albam_filename  = re.compile('^\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
-re_title_from_albam_filename2 = re.compile('^\\s*\\(.+\\)\\s*([0-9]+)\\s*[_-]*(.+)\\.mp3')
+re_title_from_albam_filename  = re.compile('^\\s*([0-9]+)[\.]*\\s*[_-]*(.+)\\.mp3')
+re_title_from_albam_filename2 = re.compile('^\\s*\\(.+\\)\\s*([0-9]+)[\.]*\\s*[_-]*(.+)\\.mp3')
 
 re_force_set_album = re.compile('^(.+)\t(.+)$')
 re_force_set_album_with_index = re.compile('^(.+)\t(.+)\t([0-9]+)$')
