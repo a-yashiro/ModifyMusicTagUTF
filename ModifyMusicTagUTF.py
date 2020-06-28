@@ -346,8 +346,10 @@ def ForceSetAlbumTag(inFile, inAudioFile, inForceSetAlbumConf):
 	global errorFileCount
 	if len(inForceSetAlbumConf) is 0:
 		return False
-
-	inTags = inAudioFile.tag
+	if inAudioFile is not None:
+		inTags = inAudioFile.tag
+	else:
+		inTags = None
 
 	fileName = str ( inFile.resolve() )
 	for conf in inForceSetAlbumConf:
@@ -492,7 +494,7 @@ def ExecTagCheck(outLogPath,inFolder,isCheckOnly,inCheckAlbumFolders, inForceSet
 			else:
 				is_skipped = False
 				logErrorFile.write(str(file.resolve())+"\n")
-				logErrorFile.write("\teyeD3 can not read audio file" +"\n")
+				logErrorFile.write("\teyeD3 can not read audio file : mp3 type " + eyed3.utils.guessMimetype(file) +"\n")
 				errorFileCount += 1
 
 
